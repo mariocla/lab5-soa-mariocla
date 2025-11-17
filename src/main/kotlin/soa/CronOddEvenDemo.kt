@@ -48,7 +48,7 @@ class IntegrationApplication(
      * Multiple subscribers can receive messages from this channel.
      */
     @Bean
-    fun evenChannel(): PublishSubscribeChannelSpec<*> = MessageChannels.publishSubscribe()
+    fun oddChannel(): PublishSubscribeChannelSpec<*> = MessageChannels.publishSubscribe()
 
     /**
      * Main integration flow that polls the integer source and routes messages.
@@ -56,16 +56,19 @@ class IntegrationApplication(
      */
     @Bean
     fun myFlow(integerSource: AtomicInteger): IntegrationFlow =
-        integrationFlow(
-            source = { integerSource.getAndIncrement() },
-            options = { poller(Pollers.fixedRate(100)) },
-        ) {
+        integrationFlow("numberChannel") {
             transform { num: Int ->
                 logger.info("📥 Source generated number: {}", num)
                 num
             }
             route { p: Int ->
-                val channel = if (p % 2 == 0) "evenChannel" else "oddChannel"
+                val channel =
+                    if (p % 2 == 0) {
+                        "evenChannel"
+                    } else {
+                        "oddChannel"
+                    }
+
                 logger.info("🔀 Router: {} → {}", p, channel)
                 channel
             }
@@ -95,11 +98,6 @@ class IntegrationApplication(
     @Bean
     fun oddFlow(): IntegrationFlow =
         integrationFlow("oddChannel") {
-            filter { p: Int ->
-                val passes = p % 2 == 0
-                logger.info("  🔍 Odd Filter: checking {} → {}", p, if (passes) "PASS" else "REJECT")
-                passes
-            } // , { discardChannel("discardChannel") })
             transform { obj: Int ->
                 logger.info("  ⚙️  Odd Transformer: {} → 'Number {}'", obj, obj)
                 "Number $obj"
@@ -129,6 +127,19 @@ class IntegrationApplication(
         logger.info("🚀 Gateway injecting: {}", number)
         sendNumber.sendNumber(number)
     }
+
+    @Bean
+    fun integerProducer(integerSource: AtomicInteger): IntegrationFlow =
+        integrationFlow(
+            source = { integerSource.getAndIncrement() },
+            options = { poller(Pollers.fixedRate(100)) },
+        ) {
+            transform { number: Int ->
+                logger.info("📥 Source generated number: {}", number)
+                number
+            }
+            channel("numberChannel")
+        }
 }
 
 /**
@@ -150,7 +161,7 @@ class SomeService {
  */
 @MessagingGateway
 interface SendNumber {
-    @Gateway(requestChannel = "evenChannel")
+    @Gateway(requestChannel = "numberChannel")
     fun sendNumber(number: Int)
 }
 
